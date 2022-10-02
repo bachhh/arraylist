@@ -66,7 +66,7 @@ impl ArrayList {
     }
 
     // calculate the "size" of the contagious-wraparound array region [tail:head]
-    fn wrapped_size(&self, head: usize, tail: usize, cap: usize) -> usize {
+    fn wrapped_size(&self, tail: usize, head: usize, cap: usize) -> usize {
         if head < tail {
             // head wrapped around
             return head + cap - tail;
@@ -76,30 +76,53 @@ impl ArrayList {
 
     // pack() DOES NOT reduce capacity of the underlying Vector
     fn pack(&mut self) {
+        if self.length
+            > (self.wrapped_size(self.tail, self.head, self.array.capacity()) as f64 * MIN_DENSITY)
+                as usize
+        {
+            return;
+        }
         let mut write = self.tail;
         let mut read = write;
-
-        while self.wrapped_size(self.tail, write, self.array.capacity()) < self.length {
+        while self.wrapped_size(self.tail, read, self.array.capacity()) < self.array.capacity() {
+            if let None = self.array[read] {
+                read = (read + 1) % self.array.capacity();
+                continue;
+            }
             if let None = self.array[write] {
-                // search from [write+1: end] until we find a Some() entry
-                if read <= write {
-                    read = (write + 1) % self.array.capacity();
-                }
-
-                while let None = self.array[read] {
-                    read = (read + 1) % self.array.capacity();
-                    // the read index can only move `i == array_capacity` indexes at most
-                    if self.wrapped_size(read, self.tail, self.array.capacity())
-                        >= self.array.capacity()
-                    {
-                        return;
-                    }
-                    // TODO some bound checking here
-                }
-
                 self.array.swap(read, write);
             }
+            read = (read + 1) % self.array.capacity();
             write = (write + 1) % self.array.capacity();
         }
     }
+
+    fn extend(&mut self) {
+        if self.length < self.array.capacity() {
+            return;
+        }
+        let old_capacity = self.array.capacity();
+        let new_capacity = (old_capacity as f64) / ((1.0 + MIN_DENSITY) * 2.0);
+        self.array.reserve(new_capacity as usize);
+
+        for i in old_capacity..=self.array.capacity() {
+            self.array[i] = None;
+        }
+
+        if self.tail > self.head {
+            return;
+        }
+
+        // tail parts are wrapped around, reinsert into the newe list tail
+        let old_tail = self.tail;
+        self.tail = old_capacity;
+        for i in 0..old_tail {
+            if let Some(_) = self.array[i] {
+                self.tail = self.tail + 1 % self.array.capacity();
+                self.array.swap(self.tail, i); // list[i] is now None
+            }
+        }
+    }
+
+    fn resize(&mut self) {}
 }
